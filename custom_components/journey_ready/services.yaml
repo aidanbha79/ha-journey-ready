@@ -1,0 +1,129 @@
+{
+  "refresh": {
+    "name": "refresh",
+    "description": "Read calendars and recalculate journeys.",
+    "fields": {
+      "entry_id": {
+        "name": "Config entry ID",
+        "description": "Optional when one entry exists.",
+        "selector": {
+          "text": {}
+        }
+      }
+    }
+  },
+  "test_notification": {
+    "name": "test notification",
+    "description": "Send a labelled phone test and an Alexa announcement if home.",
+    "fields": {
+      "entry_id": {
+        "name": "Config entry ID",
+        "description": "Optional when one entry exists.",
+        "selector": {
+          "text": {}
+        }
+      }
+    }
+  },
+  "skip_journey": {
+    "name": "skip journey",
+    "description": "Suppress reminders for an upcoming journey.",
+    "fields": {
+      "entry_id": {
+        "name": "Config entry ID",
+        "description": "Optional when one entry exists.",
+        "selector": {
+          "text": {}
+        }
+      },
+      "obligation_id": {
+        "name": "Journey ID",
+        "description": "From sensor attributes. Omit for the next journey.",
+        "selector": {
+          "text": {}
+        }
+      }
+    }
+  },
+  "mark_started": {
+    "name": "mark started",
+    "description": "Stop departure prompts after setting off.",
+    "fields": {
+      "entry_id": {
+        "name": "Config entry ID",
+        "description": "Optional when one entry exists.",
+        "selector": {
+          "text": {}
+        }
+      },
+      "obligation_id": {
+        "name": "Journey ID",
+        "description": "From sensor attributes. Omit for the next journey.",
+        "selector": {
+          "text": {}
+        }
+      }
+    }
+  },
+  "override_mode": {
+    "name": "override mode",
+    "description": "Choose an allowed mode. Safety and return constraints still apply.",
+    "fields": {
+      "entry_id": {
+        "name": "Config entry ID",
+        "description": "Optional when one entry exists.",
+        "selector": {
+          "text": {}
+        }
+      },
+      "obligation_id": {
+        "name": "Journey ID",
+        "description": "From sensor attributes. Omit for the next journey.",
+        "selector": {
+          "text": {}
+        }
+      },
+      "mode": {
+        "name": "Mode",
+        "required": true,
+        "selector": {
+          "select": {
+            "options": [
+              "auto",
+              "car",
+              "park_ride",
+              "train"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "set_car_required": {
+    "name": "set car required",
+    "description": "Set the car decision for a work date.",
+    "fields": {
+      "entry_id": {
+        "name": "Config entry ID",
+        "description": "Optional when one entry exists.",
+        "selector": {
+          "text": {}
+        }
+      },
+      "work_date": {
+        "name": "Work date",
+        "required": true,
+        "selector": {
+          "date": {}
+        }
+      },
+      "required": {
+        "name": "Car needed",
+        "required": true,
+        "selector": {
+          "boolean": {}
+        }
+      }
+    }
+  }
+}
