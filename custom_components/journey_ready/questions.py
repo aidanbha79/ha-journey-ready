@@ -9,7 +9,7 @@ def revision_for(obligations, day):
     values = sorted(
         f"{trip.id}:{trip.revision}"
         for trip in obligations
-        if trip.kind == "work" and trip.arrival_by.date().isoformat() == day
+        if trip.arrival_by.date().isoformat() == day
     )
     return sha256("|".join(values).encode()).hexdigest()
 
@@ -41,11 +41,22 @@ def create_question(entry, user, work_date, now, fallback_minutes=15, expires_at
 
 
 def answer_question(question, token, answer, user, now):
-    if (
-        question.get("answer") is not None
-        or token != question.get("token")
-        or user != question.get("user")
-    ):
+    if not user or user != question.get("user"):
+        return False
+    return _record_answer(question, token, answer, now)
+
+
+def answer_voice_question(question, token, answer, backend, configured_backend, owner, now):
+    """Accept an explicitly trusted household backend, without claiming speaker identity."""
+    if not configured_backend or backend != configured_backend or not owner:
+        return False
+    if question.get("user") != owner or not question.get("alexa_sent"):
+        return False
+    return _record_answer(question, token, answer, now)
+
+
+def _record_answer(question, token, answer, now):
+    if question.get("answer") is not None or token != question.get("token"):
         return False
     if now >= datetime.fromisoformat(question["expires"]) or now < datetime.fromisoformat(
         question["created"]

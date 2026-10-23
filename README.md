@@ -43,7 +43,9 @@ After publication:
 | Appointment destinations | Confirm or replace ambiguous calendar locations |
 | Connections | Calendars, person, phone and location freshness |
 
-A full calendar postcode can be resolved automatically when lookup returns one match. Ambiguous locations need a map pin. Cancelled, provider-exposed declined, online-only and non-work all-day events are skipped. An all-day office marker uses configured arrival time.
+A full calendar postcode can be resolved automatically when lookup returns one match. Ambiguous locations need a map pin. Cancelled, provider-exposed declined, online-only and non-work all-day events are skipped. An all-day office marker uses configured arrival/end times; timed events retain their actual end.
+
+For an appointment after a Park & Ride commute, enter confirmed return bus departures. The plan includes walking back to the bus, the return ride and collecting the car before driving onward. A started commute is remembered across reloads. Missing collection information leaves the onward journey unresolved. Plans follow calendar order; they do not globally optimise every possible combination of work and later appointments.
 
 ## Sources and limitations
 
@@ -58,11 +60,15 @@ A full calendar postcode can be resolved automatically when lookup returns one m
 
 Live bus departure does not predict the entire ride. A rail live board cannot provide tomorrow's timetable. Manual estimates are labelled. Missing live data never proves there are no delays.
 
+Bus boards only replace configured departures they explicitly report, including cancellations and unusable predictions. An empty board has no proven coverage of later departures, which remain labelled timetable estimates.
+
 Fuel Finder follows first-hand consumer documentation because the official portal was inaccessible through the documentation service. Its schema and credentials require a live check. Unsupported/incomplete responses are rejected. Lookup is disabled until enabled in options. Auto price-unit handling follows documented mixed units; explicit pounds/pence overrides exist.
 
 Local median is an indicative area price, not the cheapest pump quotation. Fuel cost uses return miles, 45 UK mpg by default and price per litre, excluding depreciation. Ticket prices are configured, not live quotes.
 
 Check account products and quotas. TransportAPI's small free allowance may not support frequent monitoring. Usage budgets survive reloads. See [provider contracts](docs/providers.md) and [Alexa setup](docs/alexa-setup.md).
+
+Alexa voice responses require the authenticated backend's Home Assistant user ID to be explicitly trusted. This verifies the backend, not the individual speaker. Leave it blank for phone-only answers.
 
 ## Entities and controls
 

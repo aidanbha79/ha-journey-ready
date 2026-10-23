@@ -14,7 +14,9 @@ Travel time already includes delay. Recalculate using estimated departure; futur
 
 Rail uses the 20220120 JSON GetDepBoardWithDetails operation and licensed Basic Auth credentials. Do not assume SOAP tokens are interchangeable. Destination calling points must exist; stale boards, cancellations and unknown delay clocks are rejected. Direct trains only. Tomorrow requires a confirmed fallback schedule outside the live-board horizon.
 
-Bus uses TransportAPI v3 stop departures with ATCO boarding-stop and route filtering. GPS is never converted to an arrival prediction. Ride duration, walks, service days, last return and closure are configured. A successful empty board does not reintroduce a cancelled manual service.
+Bus uses TransportAPI v3 stop departures with ATCO boarding-stop and route filtering. GPS is never converted to an arrival prediction. Ride duration, walks, service days, last return and closure are configured. A board overrides only the scheduled departures it reports. Explicit cancellations and unusable predictions block matching manual departures. An empty board does not establish coverage of later services, which remain labelled timetable estimates.
+
+Confirmed return departure times are required to plan collecting a parked car before an onward appointment. Collection must finish before gate closure and use a bus no later than the configured last return. Without return times, work return availability is only an estimate based on the configured limits and ride duration.
 
 ## Weather
 

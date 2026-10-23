@@ -32,6 +32,7 @@ from .providers.tomtom import TomTom
 from .providers.weather import Weather
 from .questions import (
     answer_question,
+    answer_voice_question,
     create_question,
     prune_questions,
     revision_for,
@@ -39,6 +40,7 @@ from .questions import (
 )
 from .scheduler import due_reminders, mark_sent, prune_state
 from .storage import JourneyStore
+from .vehicle import remember_departure
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -56,6 +58,7 @@ class JourneyCoordinator(DataUpdateCoordinator):
         self.last_refresh = None
         self.force = True
         self.calendar_ok = False
+        self.source_generation = 0
         self.status = []
         self.delivery_lock = asyncio.Lock()
         self.notifier = Notifier(hass, entry.entry_id, self.settings["notify_service"])
@@ -200,13 +203,14 @@ class JourneyCoordinator(DataUpdateCoordinator):
                 return self.plans
         self.force = False
         self.status = []
+        generation = self.source_generation
+        self.calendar_ok = False
         try:
             obligations = await self._read_calendars()
         except HomeAssistantError:
             self.calendar_ok = False
             self.status.append("Calendar unavailable; reminders suspended until it recovers")
             return self.plans
-        self.calendar_ok = True
         self.last_refresh = now
         self.update_interval = timedelta(minutes=2 if active else 5)
         person = self.hass.states.get(self.settings["person"])
@@ -262,15 +266,25 @@ class JourneyCoordinator(DataUpdateCoordinator):
             price if price is not None else self.settings.get("diesel_price") or None
         )
         prune_questions(self.state, obligations, now)
-        self.plans = await self.engine.plan(obligations, origin.place, now, self.state)
-        self.state.overrides["_selected"] = {
-            p.obligation.id: {"mode": p.selected.mode, "leave_at": p.selected.leave_at.isoformat()}
-            for p in self.plans
-            if p.selected
-        }
-        prune_state(self.state, self.plans)
-        self._schedule_reminders()
-        await self.save()
+        plans = await self.engine.plan(obligations, origin.place, now, self.state)
+        async with self.delivery_lock:
+            if generation != self.source_generation:
+                self.force = True
+                return self.plans
+            self.plans = plans
+            self.state.overrides["_selected"] = {
+                p.obligation.id: {
+                    "mode": p.selected.mode,
+                    "leave_at": p.selected.leave_at.isoformat(),
+                }
+                for p in self.plans
+                if p.selected
+            }
+            prune_state(self.state, self.plans)
+            prune_questions(self.state, obligations, now)
+            self._schedule_reminders()
+            self.calendar_ok = True
+            await self.save()
         return self.plans
 
     def start(self):
@@ -322,6 +336,9 @@ class JourneyCoordinator(DataUpdateCoordinator):
     def _source_changed(self, event):
         old, new = event.data.get("old_state"), event.data.get("new_state")
         calendar = event.data["entity_id"] in self.settings["calendars"]
+        if calendar:
+            self.source_generation += 1
+            self.calendar_ok = False
         plan = self.next_plan
         if (
             not calendar
@@ -338,6 +355,7 @@ class JourneyCoordinator(DataUpdateCoordinator):
                 <= plan.obligation.arrival_by
             ):
                 self.state.started.append(plan.obligation.id)
+                remember_departure(self.state, plan)
         if calendar or not old or not new or old.state != new.state:
             self.hass.async_create_task(self.refresh())
 
@@ -394,6 +412,14 @@ class JourneyCoordinator(DataUpdateCoordinator):
             for reminder in due_reminders(
                 self.state, self.plans, now, self.settings["change_minutes"]
             ):
+                if not self.calendar_ok:
+                    break
+                # Another callback can invalidate a route while the preceding send awaits.
+                current = due_reminders(
+                    self.state, self.plans, self.now(), self.settings["change_minutes"]
+                )
+                if not any(r.key == reminder.key and r.plan == reminder.plan for r in current):
+                    continue
                 try:
                     await self.notifier.plan(reminder.plan, reminder.stage)
                 except HomeAssistantError:
@@ -401,9 +427,16 @@ class JourneyCoordinator(DataUpdateCoordinator):
                     continue
                 mark_sent(self.state, reminder)
                 await self.save()
-                if reminder.stage in ("leave", "late", "changed", "unavailable", "recovered"):
+                if self.calendar_ok and reminder.stage in (
+                    "leave",
+                    "late",
+                    "changed",
+                    "unavailable",
+                    "recovered",
+                ):
                     await self._speak(message(reminder.plan, reminder.stage))
-            await self._questions(now)
+            if self.calendar_ok:
+                await self._questions(now)
             await self.save()
         self.async_set_updated_data(self.plans)
 
@@ -432,7 +465,9 @@ class JourneyCoordinator(DataUpdateCoordinator):
                     self.settings["fallback_minutes"],
                     expires_at=min(t.arrival_by for t in trips),
                 )
-                self.state.questions[day]["revision"] = revision_for(trips, day)
+                self.state.questions[day]["revision"] = revision_for(
+                    [p.obligation for p in self.plans], day
+                )
             question = self.state.questions[day]
             if not question["phone_sent"]:
                 try:
@@ -481,6 +516,12 @@ class JourneyCoordinator(DataUpdateCoordinator):
         if not answer:
             return
         token = identity[3:]
+        user = event.context.user_id
+        if (
+            not self.settings.get("alexa_response_user")
+            or user != self.settings["alexa_response_user"]
+        ):
+            return
         question = next(
             (
                 q
@@ -490,14 +531,28 @@ class JourneyCoordinator(DataUpdateCoordinator):
             None,
         )
         if question and self.alexa.allowed():
-            self.hass.async_create_task(self._accept(token, answer, question["user"]))
+            self.hass.async_create_task(self._accept(token, answer, user, voice=True))
 
-    async def _accept(self, token, answer, user):
+    async def _accept(self, token, answer, user, *, voice=False):
         async with self.delivery_lock:
             changed = False
             for question in self.state.questions.values():
-                changed = answer_question(question, token, answer, user, self.now()) or changed
+                if voice:
+                    accepted = self.alexa.allowed() and answer_voice_question(
+                        question,
+                        token,
+                        answer,
+                        user,
+                        self.settings.get("alexa_response_user"),
+                        self._expected_user(),
+                        self.now(),
+                    )
+                else:
+                    accepted = answer_question(question, token, answer, user, self.now())
+                changed = accepted or changed
             if changed:
+                self.source_generation += 1
+                self.calendar_ok = False
                 await self.save()
         if changed:
             await self.refresh()

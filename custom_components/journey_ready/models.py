@@ -66,6 +66,7 @@ class TransitService:
     evidence: Evidence
     cancelled: bool = False
     line: str = ""
+    scheduled_departure: datetime | None = None
 
 
 @dataclass(frozen=True)

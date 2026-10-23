@@ -147,3 +147,218 @@ async def test_ambiguous_postcode_matches_require_confirmation():
     )
     plan = (await Engine(SETTINGS, Ambiguous()).plan([trip], HOME, NOW, RuntimeState()))[0]
     assert plan.selected is None
+
+
+@pytest.mark.asyncio
+async def test_bus_must_still_be_reachable_from_now():
+    now = NOW.replace(hour=7, minute=20)
+    trip = Obligation("a", "r", "work", "Office", NOW.replace(hour=9), NOW.replace(hour=17))
+    plan = (await Engine(SETTINGS, Road()).plan([trip], HOME, now, RuntimeState()))[0]
+    assert plan.selected.leave_at >= now
+    assert plan.selected.leave_at == NOW.replace(hour=7, minute=35)
+
+
+@pytest.mark.asyncio
+async def test_empty_bus_board_does_not_claim_coverage_of_later_timetable():
+    class EmptyBus:
+        async def departures(self, *args):
+            return []
+
+    settings = {**SETTINGS, "park_ride_sites": [{**SITE, "stop_id": "stop", "line": "9"}]}
+    trip = Obligation("a", "r", "work", "Office", NOW.replace(hour=9), NOW.replace(hour=17))
+    plan = (await Engine(settings, Road(), bus=EmptyBus()).plan([trip], HOME, NOW, RuntimeState()))[
+        0
+    ]
+    assert plan.selected is not None
+    assert any("unconfirmed" in warning for warning in plan.warnings)
+
+
+@pytest.mark.asyncio
+async def test_late_car_candidate_reports_achievable_arrival():
+    trip = Obligation(
+        "a", "r", "appointment", "Dentist", NOW + timedelta(minutes=10), NOW + timedelta(hours=1)
+    )
+    settings = {**SETTINGS, "destinations": {"Dentist": OFFICE}}
+    plan = (await Engine(settings, Road()).plan([trip], HOME, NOW, RuntimeState()))[0]
+    assert plan.selected is None
+    assert plan.alternatives[0].arrive_at >= NOW + timedelta(minutes=25)
+    assert any("deadline" in warning for warning in plan.warnings)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("appointment_time,possible", [("17:45", False), ("18:30", True)])
+async def test_onward_car_requires_return_to_parked_car(appointment_time, possible):
+    work = Obligation("work", "r", "work", "Office", NOW.replace(hour=9), NOW.replace(hour=17))
+    hour, minute = map(int, appointment_time.split(":"))
+    appointment = Obligation(
+        "dentist",
+        "r",
+        "appointment",
+        "Dentist",
+        NOW.replace(hour=hour, minute=minute),
+        NOW.replace(hour=19),
+    )
+    settings = {
+        **SETTINGS,
+        "park_ride_sites": [{**SITE, "return_departures": "17:10,17:40"}],
+        "destinations": {"Dentist": {**OFFICE, "name": "Dentist"}},
+    }
+    plans = await Engine(settings, Road()).plan([work, appointment], HOME, NOW, RuntimeState())
+    assert (plans[1].selected is not None) is possible
+    if possible:
+        assert "Collect car at Site" in plans[1].selected.detail
+        assert plans[1].selected.leave_at >= work.end_at
+
+
+@pytest.mark.asyncio
+async def test_onward_car_without_confirmed_return_bus_is_unresolved():
+    work = Obligation("work", "r", "work", "Office", NOW.replace(hour=9), NOW.replace(hour=17))
+    appointment = Obligation(
+        "dentist", "r", "appointment", "Dentist", NOW.replace(hour=18), NOW.replace(hour=19)
+    )
+    settings = {**SETTINGS, "destinations": {"Dentist": OFFICE}}
+    plans = await Engine(settings, Road()).plan([work, appointment], HOME, NOW, RuntimeState())
+    assert plans[1].selected is None
+    assert any("return departures" in warning for warning in plans[1].warnings)
+
+
+@pytest.mark.asyncio
+async def test_started_park_ride_is_remembered_for_afternoon_collection():
+    from custom_components.journey_ready.vehicle import remember_departure
+
+    work = Obligation("work", "r", "work", "Office", NOW.replace(hour=9), NOW.replace(hour=17))
+    appointment = Obligation(
+        "dentist", "r", "appointment", "Dentist", NOW.replace(hour=19), NOW.replace(hour=20)
+    )
+    settings = {
+        **SETTINGS,
+        "home_location": {
+            "name": HOME.name,
+            "latitude": HOME.latitude,
+            "longitude": HOME.longitude,
+        },
+        "park_ride_sites": [{**SITE, "return_departures": "17:40,18:00"}],
+        "destinations": {"Dentist": {**OFFICE, "name": "Dentist"}},
+    }
+    state = RuntimeState()
+    morning = await Engine(settings, Road()).plan([work], HOME, NOW, state)
+    remember_departure(state, morning[0])
+    # Simulate reload and an actual phone origin at the office after work.
+    state = RuntimeState(overrides=state.overrides)
+    plans = await Engine(settings, Road()).plan(
+        [work, appointment],
+        Place(
+            **{"name": "Office", "latitude": OFFICE["latitude"], "longitude": OFFICE["longitude"]}
+        ),
+        NOW.replace(hour=17),
+        state,
+    )
+    assert plans[0].selected is None
+    assert plans[1].selected is not None
+    assert "Collect car at Site" in plans[1].selected.detail
+
+
+@pytest.mark.asyncio
+async def test_cancelled_bus_cannot_return_from_manual_timetable():
+    from custom_components.journey_ready.providers.bus import parse_departures
+
+    class CancelledBus:
+        async def departures(self, *args):
+            return parse_departures(
+                {
+                    "departures": {
+                        "9": [
+                            {
+                                "line": "9",
+                                "date": "2026-10-23",
+                                "aimed_departure_time": "08:30",  # London time, 07:30 UTC
+                                "status": "cancelled",
+                            }
+                        ]
+                    }
+                },
+                "9",
+                NOW,
+            )
+
+    settings = {
+        **SETTINGS,
+        "park_ride_sites": [{**SITE, "stop_id": "stop", "line": "9", "departures": "07:30"}],
+    }
+    trip = Obligation("a", "r", "work", "Office", NOW.replace(hour=9), NOW.replace(hour=17))
+    plan = (
+        await Engine(settings, Road(), bus=CancelledBus()).plan([trip], HOME, NOW, RuntimeState())
+    )[0]
+    assert plan.selected is None
+
+
+@pytest.mark.asyncio
+async def test_late_timed_work_end_invalidates_return_site():
+    from custom_components.journey_ready.calendar import normalise_events
+    from custom_components.journey_ready.questions import revision_for
+
+    early = normalise_events(
+        [
+            {
+                "summary": "Office",
+                "uid": "a",
+                "start": NOW.replace(hour=9),
+                "end": NOW.replace(hour=17),
+            }
+        ],
+        {},
+        UTC,
+    )[0]
+    late = normalise_events(
+        [
+            {
+                "summary": "Office",
+                "uid": "a",
+                "start": NOW.replace(hour=9),
+                "end": NOW.replace(hour=23),
+            }
+        ],
+        {},
+        UTC,
+    )[0]
+    assert revision_for([early], "2026-10-23") != revision_for([late], "2026-10-23")
+    assert (await Engine(SETTINGS, Road()).plan([late], HOME, NOW, RuntimeState()))[
+        0
+    ].selected is None
+
+
+@pytest.mark.asyncio
+async def test_train_commute_does_not_create_a_car_at_the_office():
+    work = Obligation("work", "r", "work", "Office", NOW.replace(hour=9), NOW.replace(hour=17))
+    appointment = Obligation(
+        "dentist", "r", "appointment", "Dentist", NOW.replace(hour=19), NOW.replace(hour=20)
+    )
+    settings = {
+        **SETTINGS,
+        "park_ride_sites": [],
+        "rail_enabled": True,
+        "car_required_default": False,
+        "origin_station": OFFICE,
+        "destination_station": OFFICE,
+        "rail_timetable_confirmed": True,
+        "rail_departures": "07:40",
+        "rail_minutes": 30,
+        "rail_last_return": "22:00",
+        "destinations": {"Dentist": OFFICE},
+    }
+    plans = await Engine(settings, Road()).plan([work, appointment], HOME, NOW, RuntimeState())
+    assert plans[0].selected.mode == "train"
+    assert plans[1].selected is None
+    assert any("Car is not confirmed" in warning for warning in plans[1].warnings)
+
+
+@pytest.mark.asyncio
+async def test_return_departure_cannot_collect_car_after_gate_closes():
+    trip = Obligation("work", "r", "work", "Office", NOW.replace(hour=9), NOW.replace(hour=17))
+    settings = {
+        **SETTINGS,
+        "park_ride_sites": [{**SITE, "return_departures": "22:00", "closes": "22:15"}],
+    }
+    assert (await Engine(settings, Road()).plan([trip], HOME, NOW, RuntimeState()))[
+        0
+    ].selected is None

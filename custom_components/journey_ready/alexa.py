@@ -46,7 +46,7 @@ class Alexa:
             return False
         script = self.settings.get("alexa_question_script")
         speaker = self.settings.get("alexa_speaker")
-        if not script or not speaker:
+        if not script or not speaker or not self.settings.get("alexa_response_user"):
             return False
         # The upstream script owns the helper serialization and skill launcher.
         await self.hass.services.async_call(

@@ -54,6 +54,25 @@ def test_unchanged_calendar_retains_answer():
     assert state.questions[day]["answer"] is False
 
 
+@pytest.mark.parametrize("change", ["add", "delete", "revise"])
+def test_after_work_calendar_changes_invalidate_car_answer(change):
+    appointment = replace(
+        TRIP,
+        id="dentist",
+        revision="one",
+        kind="appointment",
+        arrival_by=TRIP.end_at + timedelta(hours=1),
+    )
+    before = [TRIP] if change == "add" else [TRIP, appointment]
+    after = [TRIP] if change == "delete" else [TRIP, replace(appointment, revision="two")]
+    day = TRIP.arrival_by.date().isoformat()
+    q = create_question("e", "u", day, NOW)
+    q.update(answer=False, revision=revision_for(before, day))
+    state = RuntimeState(questions={day: q})
+    prune_questions(state, after, NOW)
+    assert state.questions == {}
+
+
 def test_summary_includes_today_and_provisional_tomorrow():
     second = replace(
         TRIP, id="b", destination="Dentist", kind="appointment", arrival_by=NOW + timedelta(hours=5)

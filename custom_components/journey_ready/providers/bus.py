@@ -14,16 +14,23 @@ def parse_departures(data, line, now):
         return []
     for group in groups.values():
         for item in group if isinstance(group, list) else []:
-            if str(item.get("line")) != str(line) or str(item.get("status", "")).lower() in (
-                "cancelled",
-                "canceled",
-            ):
+            if str(item.get("line")) != str(line):
                 continue
             try:
                 reference = datetime.fromisoformat(str(item.get("date", now.date())))
                 reference = reference.replace(tzinfo=now.tzinfo)
                 predicted = item.get("expected_departure_time")
-                departure = clock_time(predicted or item.get("aimed_departure_time"), reference)
+                scheduled = clock_time(item.get("aimed_departure_time"), reference)
+                cancelled = str(item.get("status", "")).lower() in ("cancelled", "canceled")
+                try:
+                    departure = (
+                        scheduled
+                        if cancelled
+                        else clock_time(predicted or item.get("aimed_departure_time"), reference)
+                    )
+                except ValueError:
+                    # A known but unusable prediction must not revive an on-time fallback.
+                    departure, cancelled = scheduled, True
                 live = bool(predicted)
                 evidence = Evidence(
                     "TransportAPI", now, "live" if live else "timetable", now + timedelta(minutes=5)
@@ -35,6 +42,8 @@ def parse_departures(data, line, now):
                         departure,
                         evidence,
                         line=str(line),
+                        cancelled=cancelled,
+                        scheduled_departure=scheduled,
                     )
                 )
             except (ValueError, TypeError):

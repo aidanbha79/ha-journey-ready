@@ -64,7 +64,7 @@ def normalise_events(events, settings, tz):
             )
             finish = (
                 datetime.combine(day, time.fromisoformat(settings.get("work_end", "17:00")), tz)
-                if work
+                if all_day and work
                 else end
             )
             destination = location or (settings.get("office_address", "") if work else "")

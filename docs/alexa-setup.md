@@ -1,51 +1,52 @@
-# Alexa commissioning for Journey Ready
+# Alexa setup
 
-This guide covers announcements and spoken Yes/No answers. These are separate setup checks.
+Journey Ready configures how it uses Alexa. Amazon account sign-in and custom-skill authorisation remain separate owner steps.
 
-## 1. Connect Alexa Media Player
+## Connect Alexa
 
-Open Home Assistant, then Settings > Devices & services > Add integration > Alexa Media Player. Complete Amazon sign-in and any MFA in the setup screen. Choose the Amazon region matching the account that owns the Echo devices. Keep passwords and authentication codes in that screen.
+For this installation Alexa Media Player is already downloaded in HACS, but no Amazon account or Echo has been configured.
 
-Setup link: https://my.home-assistant.io/redirect/config_flow_start/?domain=alexa_media
+Open **Settings > Devices & services > Add integration > Alexa Media Player**, then complete Amazon sign-in/MFA under the account that owns the Echos.
 
-If it is not listed, verify the component is loaded and inspect Home Assistant logs. HACS reports a newer release, but an update and restart should follow a compatibility check rather than be assumed necessary.
+[Setup link](https://my.home-assistant.io/redirect/config_flow_start/?domain=alexa_media) · [Upstream configuration](https://github.com/alandtse/alexa_media_player/wiki/Configuration)
 
-Upstream configuration guide: https://github.com/alandtse/alexa_media_player/wiki/Configuration
+Verify a clearly labelled announcement on the intended Echo. Built-in Alexa Devices Speak/Announce notify entities are also supported for announcements, independently of voice answers.
 
-## 2. Verify an announcement
+## Set up Yes/No answers
 
-Select one discovered Echo for commissioning. Send an explicitly labelled test announcement using the integration's actual available notification action. Confirm it plays on the intended device. Then test the planner's presence guard: home permits speech; away or unknown suppresses it. Do not infer success merely from a successful service-call response.
+Install the separate Alexa Actions custom skill and current Home Assistant question/launcher scripts. This is a skill project, not a HACS integration.
 
-For installations using the built-in Alexa Devices integration instead, select its Speak or Announce notify entity. That supports spoken reminders, but does not by itself supply the question-response session required here.
+- [Current skill walkthrough](https://github.com/keatontaylor/alexa-actions/blob/master/docs/alexa-setup.md)
+- [Current Home Assistant scripts and helper](https://github.com/keatontaylor/alexa-actions/blob/master/docs/home-assistant.md)
 
-Native documentation: https://www.home-assistant.io/integrations/alexa_devices/
+The skill needs a reachable authenticated Home Assistant endpoint, normally external HTTPS. Verify that access and account linking. Keep TLS verification enabled. Do not commit a token, password or external private URL to this repository.
 
-## 3. Enable voice Yes/No
+Test the upstream question script first. It must accept text, event_id and alexa_device, and deliver alexa_actionable_notification events with event_id and event_response_type. The current upstream script handles its helper size and skill launcher.
 
-Use the separate Alexa Actionable Notifications skill with Alexa Media Player. Follow the upstream guide to create/configure a private skill in the Amazon Developer Console under the account owning the Echos, choose the appropriate language model, configure Home Assistant connectivity and authorise access. Account linking is supported by the guide and avoids copying a long-lived token into the skill when configured correctly. Keep TLS certificate verification enabled.
+## Select connections in Journey Ready
 
-The skill requires an externally reachable HTTPS Home Assistant endpoint. If using Home Assistant Cloud, verify external reachability and account linking. The travel integration will not expose a new unauthenticated endpoint or manage Amazon account credentials.
+Open **Configure > Alexa**:
 
-Prerequisites: https://github.com/keatontaylor/alexa-actions/wiki/Prerequisites
+- Enable home-only Alexa messages.
+- Select a Speak/Announce notify entity, or an Alexa Media Player speaker for announcements.
+- Select the Alexa Media Player speaker and installed Alexa Actions question script for questions.
+- Enter the Home Assistant user ID used by the authenticated Alexa Actions backend, after verifying it in a test event's context.user_id. Missing or different identities are rejected. If the backend provides no authenticated user context, keep phone answers.
 
-Skill setup: https://github.com/keatontaylor/alexa-actions/wiki/Alexa-Talking-to-Home-Assistant-(The-Skill)
+The question script owns the skill ID and helper configuration. These are not separate fields in Journey Ready.
 
-The newer SMAPI-based third-party alternative was researched but has not been selected or validated for this installation. Do not install it merely because it advertises automatic setup.
+The backend identity proves which Home Assistant account sent the event. It does not identify the person speaking to the Echo. Configuring this ID explicitly trusts household voice answers for the selected person's pending question. Keep it blank when you need answers verified per person. Announcements still work without voice answers.
 
-## 4. Select connections in the travel integration
+Set the person in Connections, then adjust quiet hours and phone fallback delay in Times and preferences.
 
-Configure announcement device/backend, question skill ID and the helper/event contract required by the selected Alexa Actions setup. Choose the appropriate person entity for presence and the intended phone notification target.
+## Verify the complete path
 
-The planned defaults ask the evening question at 19:00, wait 15 minutes for a phone answer, and then ask once through Alexa if home. Unknown or away presence prevents speech. These values remain editable.
+1. Test the phone question's Yes and No for the intended work date.
+2. Confirm a phone answer prevents the delayed Alexa question.
+3. Without a phone answer, confirm Alexa asks once when home.
+4. Confirm spoken Yes and No arrive with the pending question's event ID.
+5. Confirm silence uses the configured default, never a fabricated No.
+6. Confirm away/unknown presence prevents speech.
+7. Confirm quiet hours defer morning voice without repeating the phone summary.
+8. Confirm departure prompts do not duplicate after reload.
 
-## 5. Acceptance checks
-
-- Phone Yes and No each update only the intended work date.
-- Phone response prevents the delayed Alexa prompt.
-- With no phone answer and the person home, Alexa asks once.
-- Spoken Yes and No arrive in Home Assistant with the pending question's correlation ID.
-- Silence times out without treating it as No.
-- Away or unknown presence prevents both questions and route announcements.
-- Departure reminders speak only at home and do not duplicate after restart.
-
-Alexa is ready only after the audible announcement and both response paths are confirmed on a real Echo.
+Only mark Alexa ready after an audible announcement and both real response paths pass.

@@ -10,6 +10,7 @@ from .models import Candidate, DecisionContext, Evidence, Place, Recommendation,
 from .planner import park_ride_candidate, rail_candidate, recommend
 from .providers.base import CoverageError, ProviderError
 from .providers.weather import classify_rain
+from .vehicle import started_commute
 
 
 def place_from(data):
@@ -105,7 +106,17 @@ class Engine:
                     if self.settings.get("rail_enabled"):
                         candidates += await self._rail(trip, start, destination, now, warnings)
                 else:
-                    candidates.append(await self._car(trip, start, destination, now))
+                    if (
+                        previous
+                        and previous[0].end_at.date() == trip.arrival_by.date()
+                        and previous[0].kind == "work"
+                        and not (previous[0].end_at <= now and origin == home)
+                    ):
+                        candidates += await self._onward_car(
+                            trip, previous, destination, now, warnings, origin=origin
+                        )
+                    else:
+                        candidates.append(await self._car(trip, start, destination, now))
             except (ProviderError, ValueError, TypeError, KeyError):
                 warnings.append(
                     "Journey data unavailable; check provider access and route settings"
@@ -140,10 +151,14 @@ class Engine:
                 lock,
             )
             result = recommend(trip, candidates, context)
+            if any(c.arrive_at > trip.arrival_by for c in candidates):
+                warnings.append(
+                    "Some routes miss the arrival deadline; check achievable arrival times"
+                )
             if not candidates and trip.kind == "work" and not self.settings.get("park_ride_sites"):
                 warnings.append("Configure at least one Park & Ride site")
             plans.append(replace(result, warnings=tuple(dict.fromkeys(warnings))))
-            previous = (trip, destination)
+            previous = (trip, destination, started_commute(state, trip) or result.selected)
         return plans
 
     async def _destination(self, trip):
@@ -176,26 +191,86 @@ class Engine:
         )
         return fuel + fare if fuel is not None and fare is not None else None
 
-    async def _car(self, trip, origin, destination, now):
+    async def _car(self, trip, origin, destination, now, *, earliest=None):
         safety = self.settings.get("safety_minutes", 10)
         parking = self.settings.get("appointment_parking", 5)
         walk = self.settings.get("appointment_walk", 0)
-        guess = max(now, trip.arrival_by - timedelta(hours=1))
+        ready = max(now, earliest or now)
+        guess = max(ready, trip.arrival_by - timedelta(hours=1))
         road = await self.road.route(origin, destination, guess, now=now)
         leave = trip.arrival_by - timedelta(seconds=road.seconds, minutes=safety + parking + walk)
-        road = await self.road.route(origin, destination, max(leave, now), now=now)
+        road = await self.road.route(origin, destination, max(leave, ready), now=now)
         leave = trip.arrival_by - timedelta(seconds=road.seconds, minutes=safety + parking + walk)
         back = await self.road.route(destination, origin, max(trip.end_at, now), now=now)
         return Candidate(
             "car",
             leave,
-            leave + timedelta(seconds=road.seconds, minutes=parking + walk),
+            max(leave, ready) + timedelta(seconds=road.seconds, minutes=parking + walk),
             self._cost(road.metres + back.metres, Decimal(0)),
             road.delay_seconds,
             drive_destination=destination,
             detail=destination.name,
             evidence=(road.evidence, back.evidence),
         )
+
+    async def _onward_car(self, trip, previous, destination, now, warnings, *, origin=None):
+        work, _, selected = previous
+        if not selected or selected.mode != "park_ride":
+            warnings.append(
+                "Car is not confirmed at the office; confirm collection before this appointment"
+            )
+            return []
+        site = next(
+            (
+                s
+                for s in self.settings.get("park_ride_sites", [])
+                if place_from(s) == selected.drive_destination
+            ),
+            None,
+        )
+        if not site or not site.get("timetable_confirmed") or not site.get("return_departures"):
+            warnings.append("Confirm Park & Ride return departures to plan car collection")
+            return []
+        warnings.append(
+            "Car collection uses your confirmed return bus timetable; return delays unconfirmed"
+        )
+        point = place_from(site)
+        ready = max(work.end_at, now)
+        walk = site.get("return_walk", site["office_walk"])
+        if work.end_at <= now and origin and origin != previous[1]:
+            access = await self.road.route(origin, previous[1], now, now=now, mode="pedestrian")
+            walk += (access.seconds + 59) // 60
+            warnings.append(
+                "Return collection includes walking from your current location via the office"
+            )
+        boarding = self.settings.get("boarding_minutes", 5)
+        parking = self.settings.get("parking_minutes", 5)
+        result = []
+        for service in timetable(
+            site["return_departures"],
+            work.end_at,
+            site["bus_minutes"],
+            "Configured return bus timetable",
+        ):
+            office_leave = service.departure - timedelta(minutes=walk + boarding)
+            collected = service.arrival + timedelta(minutes=parking)
+            if (
+                office_leave < ready
+                or service.departure > at(site["last_return"], work.end_at)
+                or collected > at(site["closes"], work.end_at)
+            ):
+                continue
+            car = await self._car(trip, point, destination, now, earliest=collected)
+            # Leave the office in time for the return bus, then drive once the car is collected.
+            result.append(
+                replace(
+                    car,
+                    leave_at=office_leave,
+                    detail=f"Collect car at {site['name']}, bus {service.departure:%H:%M}, car ready {collected:%H:%M}; then {destination.name}",
+                    evidence=(service.evidence,) + car.evidence,
+                )
+            )
+        return result
 
     async def _park_ride(self, trip, origin, now, warnings):
         result = []
@@ -217,11 +292,11 @@ class Engine:
                         )
                     except ProviderError:
                         warnings.append(f"{site['name']}: live departures unavailable")
-                if services is None:
+                if services is None or site.get("timetable_confirmed"):
                     if not site.get("timetable_confirmed"):
                         warnings.append(f"{site['name']}: confirm its service timetable first")
                         continue
-                    services = timetable(
+                    configured = timetable(
                         site.get("departures", ""),
                         trip.arrival_by,
                         site["bus_minutes"],
@@ -230,6 +305,12 @@ class Engine:
                     warnings.append(
                         f"{site['name']}: timetable estimates; live bus delays unconfirmed"
                     )
+                    # A stop board proves coverage only for the departures it reports.
+                    # Retain cancellation/delay records so the matching manual service cannot return.
+                    covered = {s.scheduled_departure or s.departure for s in services or []}
+                    services = (services or []) + [
+                        s for s in configured if s.departure not in covered
+                    ]
                 collection = trip.end_at + timedelta(
                     minutes=site.get("return_walk", site["office_walk"])
                 )
@@ -238,6 +319,25 @@ class Engine:
                 ) and collection + timedelta(
                     minutes=site["bus_minutes"] + self.settings.get("parking_minutes", 5)
                 ) <= at(site["closes"], trip.end_at)
+                if site.get("return_departures") and site.get("timetable_confirmed"):
+                    return_ok = any(
+                        service.departure
+                        >= collection + timedelta(minutes=self.settings.get("boarding_minutes", 5))
+                        and service.departure <= at(site["last_return"], trip.end_at)
+                        and service.arrival
+                        + timedelta(minutes=self.settings.get("parking_minutes", 5))
+                        <= at(site["closes"], trip.end_at)
+                        for service in timetable(
+                            site["return_departures"],
+                            trip.end_at,
+                            site["bus_minutes"],
+                            "Configured return bus timetable",
+                        )
+                    )
+                else:
+                    warnings.append(
+                        f"{site['name']}: return limit is an estimate; confirm return departures for car collection"
+                    )
                 for bus in services:
                     if bus.departure < now or bus.arrival >= trip.arrival_by:
                         continue
@@ -252,19 +352,19 @@ class Engine:
                         self.settings.get("park_ride_fare", 4),
                         self.settings.get("park_ride_pass", False),
                     )
-                    result.append(
-                        park_ride_candidate(
-                            trip,
-                            destination,
-                            road,
-                            bus,
-                            office_walk=site["office_walk"],
-                            parking=self.settings.get("parking_minutes", 5),
-                            safety=self.settings.get("safety_minutes", 10),
-                            cost=self._cost(road.metres + back.metres, fare),
-                            return_available=return_ok,
-                        )
+                    candidate = park_ride_candidate(
+                        trip,
+                        destination,
+                        road,
+                        bus,
+                        office_walk=site["office_walk"],
+                        parking=self.settings.get("parking_minutes", 5),
+                        safety=self.settings.get("safety_minutes", 10),
+                        cost=self._cost(road.metres + back.metres, fare),
+                        return_available=return_ok,
                     )
+                    if candidate.leave_at >= now:
+                        result.append(candidate)
             except (ProviderError, KeyError, ValueError, TypeError):
                 warnings.append(
                     f"{site.get('name', 'Park & Ride')}: route or timetable unavailable"

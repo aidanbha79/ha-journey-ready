@@ -106,6 +106,7 @@
           "line": "Bus route number",
           "stop_id": "Boarding stop ATCO code",
           "departures": "Confirmed bus departure times (HH:MM, comma separated)",
+          "return_departures": "Confirmed return bus times for car collection (HH:MM, comma separated)",
           "bus_minutes": "Timetable bus ride (minutes)",
           "office_walk": "Walk from bus stop to office (minutes)",
           "return_walk": "Walk to return bus (minutes)",
@@ -165,9 +166,10 @@
           "alexa_enabled": "Enable home-only Alexa",
           "alexa_notify": "Alexa Speak or Announce notify entity",
           "alexa_speaker": "Alexa Media Player speaker for questions",
-          "alexa_question_script": "Installed Alexa Actions question script"
+          "alexa_question_script": "Installed Alexa Actions question script",
+          "alexa_response_user": "Trusted Alexa Actions backend Home Assistant user ID (optional)"
         },
-        "description": "Announcements and voice answers have separate prerequisites. Install and test the upstream Alexa Actions skill and question script first."
+        "description": "Install and test the upstream Alexa Actions skill and question script first. Voice answers require an explicitly trusted authenticated backend user ID. Alexa does not identify individual speakers. Leave that ID blank to require phone answers."
       },
       "destination": {
         "title": "Confirm an appointment destination",

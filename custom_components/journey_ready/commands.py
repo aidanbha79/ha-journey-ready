@@ -5,6 +5,7 @@ from homeassistant.exceptions import ServiceValidationError
 
 from .const import DOMAIN
 from .questions import create_question
+from .vehicle import remember_departure
 
 
 async def register(hass):
@@ -48,6 +49,7 @@ async def register(hass):
                 coordinator.state.skipped.append(plan.obligation.id)
             elif call.service == "mark_started":
                 coordinator.state.started.append(plan.obligation.id)
+                remember_departure(coordinator.state, plan)
             elif call.service == "override_mode":
                 coordinator.state.overrides[plan.obligation.id] = call.data["mode"]
         await coordinator.save()

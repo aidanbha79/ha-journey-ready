@@ -70,3 +70,19 @@ def test_dst_keeps_local_nine_am():
 def test_multi_day_office_expands_workdays():
     trips = normalise_events([event(start="2026-10-23", end="2026-10-27")], SETTINGS, TZ)
     assert [t.arrival_by.day for t in trips] == [23, 24, 25, 26]
+
+
+def test_timed_work_end_is_preserved_and_revises_question_context():
+    first = normalise_events(
+        [event(start="2026-10-23T09:00:00+01:00", end="2026-10-23T17:00:00+01:00", uid="same")],
+        SETTINGS,
+        TZ,
+    )[0]
+    late = normalise_events(
+        [event(start="2026-10-23T09:00:00+01:00", end="2026-10-23T23:00:00+01:00", uid="same")],
+        SETTINGS,
+        TZ,
+    )[0]
+    assert late.end_at.hour == 23
+    assert first.id == late.id
+    assert first.revision != late.revision

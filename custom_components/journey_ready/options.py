@@ -165,9 +165,10 @@ class JourneyOptionsFlow(config_entries.OptionsFlow):
                     and user_input.get("departures", "").strip()
                 ):
                     raise ValueError
-                for value in user_input.get("departures", "").split(","):
-                    if value.strip():
-                        time.fromisoformat(value.strip())
+                for key in ("departures", "return_departures"):
+                    for value in user_input.get(key, "").split(","):
+                        if value.strip():
+                            time.fromisoformat(value.strip())
                 site = {**user_input.pop("site_location"), **user_input}
                 site["days"] = [int(value) for value in site["days"]]
                 sites = list(self.values.get("park_ride_sites", []))
@@ -186,6 +187,7 @@ class JourneyOptionsFlow(config_entries.OptionsFlow):
                     vol.Required("line"): TEXT,
                     vol.Optional("stop_id"): TEXT,
                     vol.Optional("departures", default=""): TEXT,
+                    vol.Optional("return_departures", default=""): TEXT,
                     vol.Required("bus_minutes"): number(1, 180),
                     vol.Required("office_walk"): number(0, 120),
                     vol.Required("return_walk"): number(0, 120),
@@ -304,6 +306,7 @@ class JourneyOptionsFlow(config_entries.OptionsFlow):
                 "alexa_notify": entity("notify"),
                 "alexa_speaker": entity("media_player"),
                 "alexa_question_script": entity("script"),
+                "alexa_response_user": TEXT,
             },
         )
 
