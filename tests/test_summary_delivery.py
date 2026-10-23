@@ -31,6 +31,7 @@ async def test_quiet_hours_defer_voice_without_repeating_phone_summary():
 
     coordinator = SimpleNamespace(
         settings={"morning_time": "06:00"},
+        calendar_ok=True,
         state=RuntimeState(),
         plans=[plan],
         next_plan=plan,

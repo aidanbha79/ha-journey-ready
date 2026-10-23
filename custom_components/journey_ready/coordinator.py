@@ -387,7 +387,8 @@ class JourneyCoordinator(DataUpdateCoordinator):
             self.state.overrides[key] = True
         voice_key = f"morning_voice:{now.date()}"
         if (
-            not self.state.overrides.get(voice_key)
+            self.calendar_ok
+            and not self.state.overrides.get(voice_key)
             and self.next_plan
             and self.next_plan.obligation.arrival_by.date() == now.date()
         ):
