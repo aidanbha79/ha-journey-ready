@@ -15,3 +15,6 @@ configuration.yaml
 dist/
 build/
 *.egg-info/
+
+.venv*/
+.superpowers/
