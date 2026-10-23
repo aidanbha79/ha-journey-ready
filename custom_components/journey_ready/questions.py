@@ -1,7 +1,28 @@
 """Correlated, expiring per-workday decisions."""
 
 from datetime import datetime, timedelta
+from hashlib import sha256
 from secrets import token_hex
+
+
+def revision_for(obligations, day):
+    values = sorted(
+        f"{trip.id}:{trip.revision}"
+        for trip in obligations
+        if trip.kind == "work" and trip.arrival_by.date().isoformat() == day
+    )
+    return sha256("|".join(values).encode()).hexdigest()
+
+
+def prune_questions(state, obligations, now):
+    days = {trip.arrival_by.date().isoformat() for trip in obligations if trip.kind == "work"}
+    state.questions = {
+        day: q
+        for day, q in state.questions.items()
+        if day >= now.date().isoformat()
+        and day in days
+        and (q.get("manual") or q.get("revision") == revision_for(obligations, day))
+    }
 
 
 def create_question(entry, user, work_date, now, fallback_minutes=15, expires_at=None):

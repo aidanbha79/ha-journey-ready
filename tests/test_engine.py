@@ -114,3 +114,36 @@ async def test_provider_failure_does_not_fake_clear_roads():
     plan = (await Engine(SETTINGS, FailedRoad()).plan([trip], HOME, NOW, RuntimeState()))[0]
     assert plan.selected is None
     assert plan.warnings
+
+
+@pytest.mark.asyncio
+async def test_unique_postcode_location_can_be_resolved_automatically():
+    trip = Obligation(
+        "a",
+        "r",
+        "appointment",
+        "Dentist, YO1 1AA",
+        NOW + timedelta(hours=4),
+        NOW + timedelta(hours=5),
+    )
+    plan = (await Engine(SETTINGS, Road()).plan([trip], HOME, NOW, RuntimeState()))[0]
+    assert plan.selected is not None
+    assert plan.selected.drive_destination.name == "Dentist, YO1 1AA"
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_postcode_matches_require_confirmation():
+    class Ambiguous(Road):
+        async def geocode(self, query):
+            return [Place("A", 54, -1), Place("B", 53, -1)]
+
+    trip = Obligation(
+        "a",
+        "r",
+        "appointment",
+        "Dentist, YO1 1AA",
+        NOW + timedelta(hours=4),
+        NOW + timedelta(hours=5),
+    )
+    plan = (await Engine(SETTINGS, Ambiguous()).plan([trip], HOME, NOW, RuntimeState()))[0]
+    assert plan.selected is None

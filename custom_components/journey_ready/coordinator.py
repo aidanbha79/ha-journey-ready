@@ -22,13 +22,19 @@ from .const import DEFAULTS, DOMAIN
 from .engine import Engine, place_from
 from .http import HTTP
 from .location import resolve_origin
-from .notifications import Notifier, message
+from .notifications import Notifier, daily_summary, message
 from .providers.bus import Bus
 from .providers.fuel import sensor_price
 from .providers.rail import Rail
 from .providers.tomtom import TomTom
 from .providers.weather import Weather
-from .questions import answer_question, create_question, should_ask_alexa
+from .questions import (
+    answer_question,
+    create_question,
+    prune_questions,
+    revision_for,
+    should_ask_alexa,
+)
 from .scheduler import due_reminders, mark_sent, prune_state
 from .storage import JourneyStore
 
@@ -92,6 +98,23 @@ class JourneyCoordinator(DataUpdateCoordinator):
 
     async def _async_setup(self):
         self.state = await self.store.load()
+        for name, client in (
+            ("road", self.road_http),
+            ("transit", self.transit_http),
+            ("weather", self.weather_http),
+        ):
+            client.restore_usage(self.state.overrides.get("_quota", {}).get(name, {}))
+
+    async def save(self):
+        self.state.overrides["_quota"] = {
+            name: client.export_usage()
+            for name, client in (
+                ("road", self.road_http),
+                ("transit", self.transit_http),
+                ("weather", self.weather_http),
+            )
+        }
+        await self.store.save(self.state)
 
     async def _read_calendars(self):
         if not self.settings.get("calendars"):
@@ -163,18 +186,16 @@ class JourneyCoordinator(DataUpdateCoordinator):
         self.settings["effective_diesel"] = (
             price if price is not None else self.settings.get("diesel_price") or None
         )
+        prune_questions(self.state, obligations, now)
         self.plans = await self.engine.plan(obligations, origin.place, now, self.state)
-        valid_days = {
-            trip.arrival_by.date().isoformat() for trip in obligations if trip.kind == "work"
-        }
-        self.state.questions = {
-            day: q
-            for day, q in self.state.questions.items()
-            if day in valid_days and day >= now.date().isoformat()
+        self.state.overrides["_selected"] = {
+            p.obligation.id: {"mode": p.selected.mode, "leave_at": p.selected.leave_at.isoformat()}
+            for p in self.plans
+            if p.selected
         }
         prune_state(self.state, self.plans)
         self._schedule_reminders()
-        await self.store.save(self.state)
+        await self.save()
         return self.plans
 
     def start(self):
@@ -224,6 +245,22 @@ class JourneyCoordinator(DataUpdateCoordinator):
     def _source_changed(self, event):
         old, new = event.data.get("old_state"), event.data.get("new_state")
         calendar = event.data["entity_id"] in self.settings["calendars"]
+        plan = self.next_plan
+        if (
+            not calendar
+            and old
+            and new
+            and old.state == "home"
+            and new.state == "not_home"
+            and plan
+            and plan.selected
+        ):
+            if (
+                plan.selected.leave_at - timedelta(minutes=30)
+                <= self.now()
+                <= plan.obligation.arrival_by
+            ):
+                self.state.started.append(plan.obligation.id)
         if calendar or not old or not new or old.state != new.state:
             self.hass.async_create_task(self.refresh())
 
@@ -233,17 +270,24 @@ class JourneyCoordinator(DataUpdateCoordinator):
 
     async def _daily(self, now):
         await self.refresh()
-        if now.strftime("%H:%M") == self.settings["morning_time"][:5] and self.next_plan:
-            key = f"morning:{now.date()}"
-            if not self.state.overrides.get(key):
-                try:
-                    await self.notifier.plan(self.next_plan, "morning")
-                    await self._speak(message(self.next_plan))
-                except HomeAssistantError:
-                    self.status.append("Morning notification could not be delivered")
-                else:
-                    self.state.overrides[key] = True
         await self._tick(now)
+
+    async def _summary(self, now):
+        key = f"morning:{now.date()}"
+        if now.time() < time.fromisoformat(
+            self.settings["morning_time"]
+        ) or self.state.overrides.get(key):
+            return
+        if not self.plans:
+            return
+        try:
+            await self.notifier.send(daily_summary(self.plans, now.date()), tag="summary")
+        except HomeAssistantError:
+            self.status.append("Morning summary could not be delivered")
+            return
+        self.state.overrides[key] = True
+        if self.next_plan and self.next_plan.obligation.arrival_by.date() == now.date():
+            await self._speak(message(self.next_plan))
 
     async def _tick(self, _now):
         now = self.now()
@@ -254,6 +298,7 @@ class JourneyCoordinator(DataUpdateCoordinator):
         async with self.delivery_lock:
             if not self.calendar_ok:
                 return
+            await self._summary(now)
             for reminder in due_reminders(
                 self.state, self.plans, now, self.settings["change_minutes"]
             ):
@@ -263,11 +308,11 @@ class JourneyCoordinator(DataUpdateCoordinator):
                     self.status.append("Phone notification failed; will retry")
                     continue
                 mark_sent(self.state, reminder)
-                await self.store.save(self.state)
-                if reminder.stage in ("leave", "late", "changed"):
+                await self.save()
+                if reminder.stage in ("leave", "late", "changed", "unavailable", "recovered"):
                     await self._speak(message(reminder.plan, reminder.stage))
             await self._questions(now)
-            await self.store.save(self.state)
+            await self.save()
         self.async_set_updated_data(self.plans)
 
     async def _speak(self, text):
@@ -295,6 +340,7 @@ class JourneyCoordinator(DataUpdateCoordinator):
                     self.settings["fallback_minutes"],
                     expires_at=min(t.arrival_by for t in trips),
                 )
+                self.state.questions[day]["revision"] = revision_for(trips, day)
             question = self.state.questions[day]
             if not question["phone_sent"]:
                 try:
@@ -303,7 +349,7 @@ class JourneyCoordinator(DataUpdateCoordinator):
                     self.status.append("Evening phone question could not be delivered")
                 else:
                     question["phone_sent"] = True
-                    await self.store.save(self.state)
+                    await self.save()
         person = self.hass.states.get(self.settings["person"])
         for question in self.state.questions.values():
             if should_ask_alexa(question, now, person.state if person else "unknown"):
@@ -360,6 +406,6 @@ class JourneyCoordinator(DataUpdateCoordinator):
             for question in self.state.questions.values():
                 changed = answer_question(question, token, answer, user, self.now()) or changed
             if changed:
-                await self.store.save(self.state)
+                await self.save()
         if changed:
             await self.refresh()

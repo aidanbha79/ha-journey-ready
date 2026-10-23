@@ -67,7 +67,9 @@ async def test_config_flow_confirms_coordinates(hass):
 
 @pytest.mark.asyncio
 async def test_setup_without_alexa_or_ollama_and_unload(hass):
-    entry = MockConfigEntry(domain=DOMAIN, data=basic_data(), unique_id="person.test")
+    entry = MockConfigEntry(
+        domain=DOMAIN, data=basic_data(), unique_id="person.test", title="Journey Ready"
+    )
     entry.add_to_hass(hass)
     with patch(
         "custom_components.journey_ready.coordinator.JourneyCoordinator._read_calendars",
@@ -76,10 +78,11 @@ async def test_setup_without_alexa_or_ollama_and_unload(hass):
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
         assert entry.runtime_data.plans == []
+        coordinator = entry.runtime_data
         assert hass.states.get("sensor.journey_ready_readiness") is not None
         assert await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
-        assert not entry.runtime_data.unsubscribers
+        assert not coordinator.unsubscribers
 
 
 @pytest.mark.asyncio

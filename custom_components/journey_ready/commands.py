@@ -35,6 +35,7 @@ async def register(hass):
                 coordinator.entry.entry_id, coordinator._expected_user(), day, coordinator.now()
             )
             question["answer"] = call.data["required"]
+            question["manual"] = True
             coordinator.state.questions[day] = question
         else:
             plan = next(
@@ -49,7 +50,7 @@ async def register(hass):
                 coordinator.state.started.append(plan.obligation.id)
             elif call.service == "override_mode":
                 coordinator.state.overrides[plan.obligation.id] = call.data["mode"]
-        await coordinator.store.save(coordinator.state)
+        await coordinator.save()
         await coordinator.refresh()
 
     common = {vol.Optional("entry_id"): str}

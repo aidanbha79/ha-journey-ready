@@ -73,3 +73,12 @@ def test_late_plan_warns_immediately():
     assert [
         r.stage for r in due_reminders(RuntimeState(), [plan()], LEAVE + timedelta(minutes=1))
     ] == ["late"]
+
+
+def test_later_departure_update_is_sent_even_outside_hour_window():
+    state = RuntimeState()
+    mark_sent(state, due_reminders(state, [plan()], LEAVE - timedelta(hours=1))[0])
+    updates = due_reminders(
+        state, [plan(LEAVE + timedelta(minutes=20))], LEAVE - timedelta(minutes=55)
+    )
+    assert [r.stage for r in updates] == ["changed"]

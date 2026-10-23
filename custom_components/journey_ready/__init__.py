@@ -32,7 +32,7 @@ async def async_unload_entry(hass, entry):
     ):
         return False
     entry.runtime_data.stop()
-    await entry.runtime_data.store.save(entry.runtime_data.state)
+    await entry.runtime_data.save()
     hass.data[DOMAIN].pop(entry.entry_id, None)
     if not hass.data[DOMAIN]:
         unregister(hass)

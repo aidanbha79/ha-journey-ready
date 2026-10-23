@@ -1,5 +1,6 @@
 """Coordinate providers into complete, explicitly qualified journeys."""
 
+import re
 from dataclasses import replace
 from datetime import datetime, time, timedelta
 from decimal import Decimal
@@ -40,6 +41,7 @@ class Engine:
     def __init__(self, settings, road, *, rail=None, bus=None, weather=None):
         self.settings, self.road = settings, road
         self.rail, self.bus, self.weather = rail, bus, weather
+        self.resolved = {}
 
     async def plan(self, obligations, origin, now, state):
         plans = []
@@ -60,7 +62,7 @@ class Engine:
                 and previous[0].end_at > now
             ):
                 start = previous[1]
-            destination = self._destination(trip)
+            destination = await self._destination(trip)
             if not destination:
                 plans.append(
                     Recommendation(
@@ -142,11 +144,24 @@ class Engine:
             previous = (trip, destination)
         return plans
 
-    def _destination(self, trip):
+    async def _destination(self, trip):
         if trip.kind == "work":
             return place_from(self.settings["office_location"])
         saved = self.settings.get("destinations", {}).get(trip.destination)
-        return place_from(saved) if saved else None
+        if saved:
+            return place_from(saved)
+        if trip.destination in self.resolved:
+            return self.resolved[trip.destination]
+        if not re.search(r"\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b", trip.destination, re.IGNORECASE):
+            return None
+        try:
+            matches = await self.road.geocode(trip.destination)
+        except ProviderError:
+            return None
+        if len(matches) == 1:
+            self.resolved[trip.destination] = matches[0]
+            return matches[0]
+        return None
 
     def _cost(self, metres, fare):
         price = self.settings.get("effective_diesel", self.settings.get("diesel_price"))

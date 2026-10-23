@@ -10,9 +10,9 @@
     "person"
   ],
   "documentation": "https://github.com/aidanbha79/ha-journey-ready",
-  "issue_tracker": "https://github.com/aidanbha79/ha-journey-ready/issues",
   "integration_type": "service",
   "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/aidanbha79/ha-journey-ready/issues",
   "requirements": [],
   "version": "0.1.0"
 }

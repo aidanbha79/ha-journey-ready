@@ -1,6 +1,6 @@
 """Message formatting and Home Assistant notification delivery."""
 
-from datetime import time
+from datetime import time, timedelta
 from urllib.parse import urlencode
 
 
@@ -41,12 +41,15 @@ def message(plan, stage="morning"):
         "car": "Drive",
     }.get(candidate.mode, candidate.mode)
     lead = {
-        "hour": "One hour until departure. ",
-        "leave": "Prepare to leave in 15 minutes. ",
+        "hour": "Departure is planned within the next hour. ",
+        "leave": "Time to get ready to leave. ",
         "late": "Your calculated departure time has passed. ",
-        "changed": "Your departure time has moved earlier. ",
+        "changed": "Your departure time has changed. ",
+        "recovered": "A journey is available again. ",
     }.get(stage, "")
-    text = f"{lead}{mode}. Leave by {candidate.leave_at:%H:%M}; expected arrival {candidate.arrive_at:%H:%M}. {candidate.detail}."
+    text = f"{lead}{mode} for {plan.obligation.destination or plan.obligation.title}. Leave by {candidate.leave_at:%H:%M}; expected arrival {candidate.arrive_at:%H:%M}."
+    if candidate.detail:
+        text += f" {candidate.detail}."
     if candidate.cost is not None:
         text += f" Estimated return fuel/tickets: £{candidate.cost:.2f}."
     text += " " + "; ".join(plan.reasons)
@@ -55,6 +58,17 @@ def message(plan, stage="morning"):
         text += ". Includes " + ", ".join(kinds) + " estimates."
     if plan.warnings:
         text += " " + "; ".join(plan.warnings)
+    return text
+
+
+def daily_summary(plans, today):
+    current = [message(p) for p in plans if p.obligation.arrival_by.date() == today]
+    tomorrow = [
+        message(p) for p in plans if p.obligation.arrival_by.date() == today + timedelta(days=1)
+    ]
+    text = "Today:\n" + "\n\n".join(current) if current else "No travel appointments today."
+    if tomorrow:
+        text += "\n\nTomorrow (provisional):\n" + "\n\n".join(tomorrow)
     return text
 
 

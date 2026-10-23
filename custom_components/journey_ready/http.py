@@ -20,6 +20,27 @@ class HTTP:
         self.blocked_until = None
         self.lock = asyncio.Lock()
 
+    def export_usage(self):
+        return {
+            "day": self.day.isoformat() if self.day else None,
+            "used": self.used,
+            "blocked_until": self.blocked_until.isoformat() if self.blocked_until else None,
+        }
+
+    def restore_usage(self, usage):
+        try:
+            from datetime import date
+
+            self.day = date.fromisoformat(usage["day"]) if usage.get("day") else None
+            self.used = max(0, int(usage.get("used", 0)))
+            self.blocked_until = (
+                datetime.fromisoformat(usage["blocked_until"])
+                if usage.get("blocked_until")
+                else None
+            )
+        except (ValueError, TypeError, KeyError):
+            self.day, self.used, self.blocked_until = None, 0, None
+
     async def get(self, url, *, params=None, headers=None, auth=None, cache_seconds=300):
         async with self.lock:
             now = self.clock()
