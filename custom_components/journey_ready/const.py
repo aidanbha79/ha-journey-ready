@@ -4,6 +4,11 @@ DOMAIN = "journey_ready"
 NAME = "Journey Ready"
 VERSION = "0.1.0"
 DEFAULTS = {
+    "fuel_enabled": False,
+    "fuel_auth_format": "form",
+    "fuel_radius_km": 10,
+    "fuel_price_unit": "auto",
+    "fuel_daily_budget": 500,
     "arrival_time": "09:00",
     "work_end": "17:00",
     "morning_time": "06:00",
@@ -25,7 +30,7 @@ DEFAULTS = {
     "location_max_age": 10,
     "location_max_accuracy": 200,
     "quiet_start": "22:00",
-    "quiet_end": "07:00",
+    "quiet_end": "06:00",
     "car_available": True,
     "car_required_default": True,
     "transport_daily_budget": 25,

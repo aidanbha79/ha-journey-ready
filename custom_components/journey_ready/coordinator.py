@@ -2,7 +2,8 @@
 
 import asyncio
 import logging
-from datetime import UTC, time, timedelta
+from datetime import UTC, datetime, time, timedelta
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from homeassistant.exceptions import HomeAssistantError
@@ -23,8 +24,9 @@ from .engine import Engine, place_from
 from .http import HTTP
 from .location import resolve_origin
 from .notifications import Notifier, daily_summary, message
+from .providers.base import ProviderError
 from .providers.bus import Bus
-from .providers.fuel import sensor_price
+from .providers.fuel import FuelFinder, FuelQuote, sensor_price
 from .providers.rail import Rail
 from .providers.tomtom import TomTom
 from .providers.weather import Weather
@@ -62,6 +64,20 @@ class JourneyCoordinator(DataUpdateCoordinator):
         self.road_http = HTTP(session, int(self.settings["road_daily_budget"]))
         self.transit_http = HTTP(session, int(self.settings["transport_daily_budget"]))
         self.weather_http = HTTP(session, 100)
+        self.fuel_http = HTTP(session, int(self.settings["fuel_daily_budget"]))
+        self.fuel = (
+            FuelFinder(
+                self.fuel_http,
+                self.settings["fuel_client_id"],
+                self.settings["fuel_client_secret"],
+                auth_format=self.settings["fuel_auth_format"],
+            )
+            if self.settings.get("fuel_client_id") and self.settings.get("fuel_client_secret")
+            else None
+        )
+        self.fuel_task = None
+        self.fuel_last_attempt = None
+        self.fuel_error = None
         self.road = TomTom(self.road_http, self.settings["tomtom_key"])
         rail = (
             Rail(self.transit_http, self.settings["rail_username"], self.settings["rail_password"])
@@ -102,8 +118,19 @@ class JourneyCoordinator(DataUpdateCoordinator):
             ("road", self.road_http),
             ("transit", self.transit_http),
             ("weather", self.weather_http),
+            ("fuel", self.fuel_http),
         ):
             client.restore_usage(self.state.overrides.get("_quota", {}).get(name, {}))
+        if self.fuel and (cached := self.state.overrides.get("_fuel_quote")):
+            try:
+                self.fuel.quote = FuelQuote(
+                    Decimal(cached["price"]),
+                    cached["source"],
+                    datetime.fromisoformat(cached["checked_at"]),
+                    cached.get("station_id", ""),
+                )
+            except (ValueError, KeyError, TypeError):
+                self.fuel.quote = None
 
     async def save(self):
         self.state.overrides["_quota"] = {
@@ -112,9 +139,33 @@ class JourneyCoordinator(DataUpdateCoordinator):
                 ("road", self.road_http),
                 ("transit", self.transit_http),
                 ("weather", self.weather_http),
+                ("fuel", self.fuel_http),
             )
         }
         await self.store.save(self.state)
+
+    async def _refresh_fuel(self):
+        try:
+            quote = await self.fuel.refresh(
+                place_from(self.settings["home_location"]),
+                self.settings["fuel_radius_km"],
+                self.settings.get("fuel_station_id", ""),
+                self.settings["fuel_price_unit"],
+            )
+        except ProviderError:
+            self.fuel_error = (
+                "Fuel Finder unavailable; check credentials, UK access and the supported schema"
+            )
+        else:
+            self.fuel_error = None
+            self.state.overrides["_fuel_quote"] = {
+                "price": str(quote.price),
+                "source": quote.source,
+                "checked_at": quote.checked_at.isoformat(),
+                "station_id": quote.station_id,
+            }
+        await self.save()
+        await self.refresh()
 
     async def _read_calendars(self):
         if not self.settings.get("calendars"):
@@ -166,23 +217,47 @@ class JourneyCoordinator(DataUpdateCoordinator):
         origin = resolve_origin(
             person.state if person else "unknown",
             dict(location.attributes) if location else {},
-            location.last_updated if location else None,
+            location.last_reported if location else None,
             place_from(self.settings["home_location"]),
             now,
             max_age=self.settings["location_max_age"],
             max_accuracy=self.settings["location_max_accuracy"],
         )
         price = None
+        self.settings["_fuel_source"] = (
+            "Manual diesel estimate" if self.settings.get("diesel_price") else "Fuel price unknown"
+        )
         if fuel_entity := self.settings.get("fuel_sensor"):
             fuel = self.hass.states.get(fuel_entity)
             if fuel:
                 price = sensor_price(
-                    fuel.state, fuel.attributes.get("unit_of_measurement"), fuel.last_updated, now
+                    fuel.state, fuel.attributes.get("unit_of_measurement"), fuel.last_reported, now
                 )
             if price is None:
                 self.status.append(
                     "Fuel sensor unavailable or stale; using the configured manual price if set"
                 )
+        if price is not None:
+            self.settings["_fuel_source"] = "Configured diesel sensor"
+        if self.settings.get("fuel_enabled"):
+            if not self.fuel:
+                self.status.append("Enter Fuel Finder client credentials in provider settings")
+            else:
+                quote = self.fuel.current_quote(now)
+                if quote:
+                    price = quote.price
+                    self.settings["_fuel_source"] = quote.source
+                if self.fuel_error:
+                    self.status.append(self.fuel_error)
+                if (not self.fuel_task or self.fuel_task.done()) and (
+                    not self.fuel_last_attempt
+                    or now - self.fuel_last_attempt >= timedelta(minutes=30)
+                ):
+                    if not quote or now - quote.checked_at >= timedelta(hours=3):
+                        self.fuel_last_attempt = now
+                        self.fuel_task = self.hass.async_create_background_task(
+                            self._refresh_fuel(), "Journey Ready fuel lookup"
+                        )
         self.settings["effective_diesel"] = (
             price if price is not None else self.settings.get("diesel_price") or None
         )
@@ -222,6 +297,8 @@ class JourneyCoordinator(DataUpdateCoordinator):
         self._schedule_reminders()
 
     def stop(self):
+        if self.fuel_task and not self.fuel_task.done():
+            self.fuel_task.cancel()
         for unsubscribe in self.timers + self.unsubscribers:
             unsubscribe()
         self.timers.clear()
@@ -274,20 +351,35 @@ class JourneyCoordinator(DataUpdateCoordinator):
 
     async def _summary(self, now):
         key = f"morning:{now.date()}"
-        if now.time() < time.fromisoformat(
-            self.settings["morning_time"]
-        ) or self.state.overrides.get(key):
+        if now.time() < time.fromisoformat(self.settings["morning_time"]):
             return
         if not self.plans:
             return
-        try:
-            await self.notifier.send(daily_summary(self.plans, now.date()), tag="summary")
-        except HomeAssistantError:
-            self.status.append("Morning summary could not be delivered")
-            return
-        self.state.overrides[key] = True
-        if self.next_plan and self.next_plan.obligation.arrival_by.date() == now.date():
-            await self._speak(message(self.next_plan))
+        if not self.state.overrides.get(key):
+            try:
+                upcoming = [
+                    p
+                    for p in self.plans
+                    if p.obligation.arrival_by > now and p.obligation.id not in self.state.skipped
+                ]
+                await self.notifier.send(daily_summary(upcoming, now.date()), tag="summary")
+            except HomeAssistantError:
+                self.status.append("Morning summary could not be delivered")
+                return
+            self.state.overrides[key] = True
+        voice_key = f"morning_voice:{now.date()}"
+        if (
+            not self.state.overrides.get(voice_key)
+            and self.next_plan
+            and self.next_plan.obligation.arrival_by.date() == now.date()
+        ):
+            stage = (
+                "late"
+                if self.next_plan.selected and self.next_plan.selected.leave_at < now
+                else "morning"
+            )
+            if await self._speak(message(self.next_plan, stage)):
+                self.state.overrides[voice_key] = True
 
     async def _tick(self, _now):
         now = self.now()

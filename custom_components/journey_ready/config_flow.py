@@ -8,6 +8,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import DOMAIN, NAME
 from .http import HTTP
+from .models import Place
 from .providers.base import AuthError, ProviderError
 from .providers.tomtom import TomTom
 
@@ -72,15 +73,30 @@ class JourneyReadyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_confirm(self, user_input=None):
+        errors = {}
         if user_input:
-            for key, name in (
-                ("home_location", "Home"),
-                ("office_location", self._pending["office_address"]),
-            ):
-                self._pending[key] = {**user_input[key], "name": name}
-            return self.async_create_entry(title=self._pending["name"], data=self._pending)
+            try:
+                for key, name in (
+                    ("home_location", "Home"),
+                    ("office_location", self._pending["office_address"]),
+                ):
+                    point = Place(
+                        name,
+                        float(user_input[key]["latitude"]),
+                        float(user_input[key]["longitude"]),
+                    )
+                    self._pending[key] = {
+                        "latitude": point.latitude,
+                        "longitude": point.longitude,
+                        "name": name,
+                    }
+            except (ValueError, TypeError, KeyError):
+                errors["base"] = "invalid_input"
+            else:
+                return self.async_create_entry(title=self._pending["name"], data=self._pending)
         return self.async_show_form(
             step_id="confirm",
+            errors=errors,
             description_placeholders={"home": self._home.name, "office": self._office.name},
             data_schema=vol.Schema(
                 {

@@ -12,9 +12,12 @@ class Response:
         self.status, self.headers = status, headers or {}
         self.raw = raw if raw is not None else json.dumps(data or {"ok": True}).encode()
         self.content = self
+        self.cursor = 0
 
     async def read(self, limit):
-        return self.raw[:limit]
+        chunk = self.raw[self.cursor : self.cursor + limit]
+        self.cursor += len(chunk)
+        return chunk
 
     async def __aenter__(self):
         return self
@@ -29,7 +32,11 @@ class Session:
 
     def get(self, *args, **kwargs):
         self.calls += 1
+        self.response.cursor = 0
         return self.response
+
+    def post(self, *args, **kwargs):
+        return self.get(*args, **kwargs)
 
 
 @pytest.mark.asyncio
@@ -76,3 +83,13 @@ async def test_invalid_json_is_not_cached():
         await http.get("https://example.test")
     session.response = Response()
     assert await http.get("https://example.test") == {"ok": True}
+
+
+@pytest.mark.asyncio
+async def test_fragmented_response_is_read_to_end():
+    class Fragmented(Response):
+        async def read(self, limit):
+            return await super().read(min(4, limit))
+
+    http = HTTP(Session(Fragmented(data={"ok": True, "number": 123})))
+    assert await http.get("https://example.test") == {"ok": True, "number": 123}

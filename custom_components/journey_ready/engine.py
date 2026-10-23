@@ -53,6 +53,8 @@ class Engine:
         )
         for trip in sorted(obligations, key=lambda item: item.arrival_by):
             warnings, candidates = [], []
+            if self.settings.get("_fuel_source"):
+                warnings.append(self.settings["_fuel_source"])
             start = home if trip.arrival_by.date() > now.date() else origin
             if trip.arrival_by.date() > now.date():
                 warnings.append("Tomorrow's home origin and travel times are provisional")

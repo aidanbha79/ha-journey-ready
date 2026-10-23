@@ -41,11 +41,29 @@ class HTTP:
         except (ValueError, TypeError, KeyError):
             self.day, self.used, self.blocked_until = None, 0, None
 
-    async def get(self, url, *, params=None, headers=None, auth=None, cache_seconds=300):
+    async def get(self, url, **kwargs):
+        return await self._request("GET", url, **kwargs)
+
+    async def post(self, url, *, data=None, json_body=None):
+        return await self._request("POST", url, data=data, json_body=json_body, cache_seconds=0)
+
+    async def _request(
+        self,
+        method,
+        url,
+        *,
+        params=None,
+        headers=None,
+        auth=None,
+        cache_seconds=300,
+        data=None,
+        json_body=None,
+        not_found_none=False,
+    ):
         async with self.lock:
             now = self.clock()
-            key = (url, json.dumps(params or {}, sort_keys=True))
-            if key in self.cache and self.cache[key][0] > now:
+            key = (method, url, json.dumps(params or {}, sort_keys=True))
+            if method == "GET" and key in self.cache and self.cache[key][0] > now:
                 return self.cache[key][1]
             if self.day != now.date():
                 self.day, self.used = now.date(), 0
@@ -56,9 +74,17 @@ class HTTP:
             self.used += 1
             try:
                 async with asyncio.timeout(20):
-                    async with self.session.get(
-                        url, params=params, headers=headers, auth=auth
+                    request = self.session.get if method == "GET" else self.session.post
+                    body = (
+                        ({"json": json_body} if json_body is not None else {"data": data})
+                        if method == "POST"
+                        else {}
+                    )
+                    async with request(
+                        url, params=params, headers=headers, auth=auth, **body
                     ) as response:
+                        if response.status == 404 and not_found_none:
+                            return None
                         if response.status in (401, 403):
                             raise AuthError("Provider credentials or product access rejected")
                         if response.status == 429:
@@ -72,15 +98,18 @@ class HTTP:
                             raise RateLimitError("Provider request limit reached")
                         if response.status != 200:
                             raise ProviderError(f"Provider returned HTTP {response.status}")
-                        raw = await response.content.read(2_000_001)
-                        if len(raw) > 2_000_000:
-                            raise ProviderError("Provider response is too large")
+                        raw = bytearray()
+                        while chunk := await response.content.read(65536):
+                            raw.extend(chunk)
+                            if len(raw) > 2_000_000:
+                                raise ProviderError("Provider response is too large")
                         result = json.loads(raw)
                         if not isinstance(result, (dict, list)):
                             raise ProviderError("Unexpected provider response")
             except (aiohttp.ClientError, TimeoutError, ValueError):
                 raise ProviderError("Provider response unavailable or invalid") from None
-            self.cache[key] = (now + timedelta(seconds=cache_seconds), result)
+            if method == "GET" and cache_seconds:
+                self.cache[key] = (now + timedelta(seconds=cache_seconds), result)
             # Bound cache growth over a long-running Home Assistant process.
             if len(self.cache) > 500:
                 self.cache = {k: v for k, v in self.cache.items() if v[0] > now}

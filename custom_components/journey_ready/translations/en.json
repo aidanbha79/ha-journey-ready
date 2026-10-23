@@ -90,7 +90,11 @@
           "transport_app_id": "TransportAPI app ID",
           "transport_app_key": "TransportAPI app key",
           "road_daily_budget": "Daily routing request budget",
-          "transport_daily_budget": "Daily transit request budget"
+          "transport_daily_budget": "Daily transit request budget",
+          "fuel_client_id": "Fuel Finder client ID",
+          "fuel_client_secret": "Fuel Finder client secret",
+          "fuel_daily_budget": "Daily Fuel Finder request budget",
+          "fuel_auth_format": "Fuel Finder token request format"
         },
         "description": "Leave credentials blank to retain them. Verify each provider's allowance before increasing budgets."
       },
@@ -147,9 +151,13 @@
           "rail_pass": "Train ticket already paid",
           "rain_probability": "Rain probability threshold (%)",
           "rain_fraction": "Wet hours needed to prefer car (%)",
-          "rain_coverage": "Forecast coverage required (%)"
+          "rain_coverage": "Forecast coverage required (%)",
+          "fuel_enabled": "Enable Fuel Finder local diesel lookup",
+          "fuel_radius_km": "Local forecourt radius (km)",
+          "fuel_station_id": "Preferred forecourt node ID (optional)",
+          "fuel_price_unit": "Fuel Finder price unit (auto follows documented mixed units)"
         },
-        "description": "Direct Fuel Finder lookup is not enabled yet. Use a fresh local diesel sensor with p/L or GBP/L units, or a labelled manual price. Ticket prices are configured values."
+        "description": "Fuel Finder needs your own credentials and a successful live schema check. With no preferred forecourt, use the median standard diesel price locally. A fresh sensor or manual price remains the fallback. Ticket prices are configured values."
       },
       "alexa": {
         "title": "Alexa announcements and questions",

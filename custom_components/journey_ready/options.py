@@ -9,6 +9,7 @@ from homeassistant import config_entries
 from homeassistant.helpers import selector
 
 from .const import DEFAULTS
+from .models import Place
 
 TEXT = selector.TextSelector()
 TIME = selector.TimeSelector()
@@ -57,6 +58,10 @@ class JourneyOptionsFlow(config_entries.OptionsFlow):
         errors = {}
         if user_input is not None:
             try:
+                for key, field in fields.items():
+                    if field is LOCATION and key in user_input:
+                        point = user_input[key]
+                        Place("Location", float(point["latitude"]), float(point["longitude"]))
                 for key in ("departures", "rail_departures"):
                     if key in user_input:
                         for value in user_input[key].split(","):
@@ -74,6 +79,10 @@ class JourneyOptionsFlow(config_entries.OptionsFlow):
         for key, field in fields.items():
             marker = vol.Required if key in required or key in DEFAULTS else vol.Optional
             default = self.values.get(key, vol.UNDEFINED)
+            if field is LOCATION and isinstance(default, dict):
+                default = {
+                    k: v for k, v in default.items() if k in ("latitude", "longitude", "radius")
+                }
             schema[marker(key, default=default)] = field
         return self.async_show_form(step_id=step, data_schema=vol.Schema(schema), errors=errors)
 
@@ -107,7 +116,7 @@ class JourneyOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             data = dict(self.config_entry.data)
             for key, value in user_input.items():
-                if key in ("road_daily_budget", "transport_daily_budget"):
+                if key in ("road_daily_budget", "transport_daily_budget", "fuel_daily_budget"):
                     continue
                 if value:
                     data[key] = value
@@ -116,7 +125,7 @@ class JourneyOptionsFlow(config_entries.OptionsFlow):
                 {
                     key: int(value)
                     for key, value in user_input.items()
-                    if key in ("road_daily_budget", "transport_daily_budget")
+                    if key in ("road_daily_budget", "transport_daily_budget", "fuel_daily_budget")
                 }
             )
         # Credentials are never prefilled into the returned form.
@@ -129,6 +138,14 @@ class JourneyOptionsFlow(config_entries.OptionsFlow):
                     vol.Optional("rail_password"): PASSWORD,
                     vol.Optional("transport_app_id"): TEXT,
                     vol.Optional("transport_app_key"): PASSWORD,
+                    vol.Optional("fuel_client_id"): TEXT,
+                    vol.Optional("fuel_client_secret"): PASSWORD,
+                    vol.Required(
+                        "fuel_auth_format", default=self.values["fuel_auth_format"]
+                    ): selector.SelectSelector({"options": ["form", "json"]}),
+                    vol.Required(
+                        "fuel_daily_budget", default=self.values["fuel_daily_budget"]
+                    ): number(1, 100000),
                     vol.Required(
                         "road_daily_budget", default=self.values["road_daily_budget"]
                     ): number(1, 100000),
@@ -262,6 +279,12 @@ class JourneyOptionsFlow(config_entries.OptionsFlow):
                 "gallon": selector.SelectSelector({"options": ["UK", "US"]}),
                 "diesel_price": number(0, 10, 0.001),
                 "fuel_sensor": entity("sensor"),
+                "fuel_enabled": BOOL,
+                "fuel_radius_km": number(1, 100, 0.5),
+                "fuel_station_id": TEXT,
+                "fuel_price_unit": selector.SelectSelector(
+                    {"options": ["auto", "pence", "pounds"]}
+                ),
                 "park_ride_fare": number(0, 100, 0.01),
                 "park_ride_pass": BOOL,
                 "rail_fare": number(0, 1000, 0.01),
