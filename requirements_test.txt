@@ -1,0 +1,4 @@
+homeassistant==2026.9.4
+pytest-homeassistant-custom-component==0.13.367
+pytest-asyncio==1.4.0
+ruff==0.17.2

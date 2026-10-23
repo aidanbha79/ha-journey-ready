@@ -1,0 +1,7 @@
+{
+  "name": "Journey Ready",
+  "homeassistant": "2026.9.4",
+  "render_readme": true,
+  "zip_release": true,
+  "filename": "journey_ready.zip"
+}
