@@ -1,0 +1,208 @@
+{
+  "title": "Journey Ready",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Journey Ready",
+        "description": "Select calendars and phone. TomTom supplies driving routes and address lookup. Configure Park & Ride and optional trains after setup.",
+        "data": {
+          "name": "Name",
+          "home_postcode": "Home postcode",
+          "office_address": "Office address",
+          "tomtom_key": "TomTom API key",
+          "person": "Person",
+          "calendars": "Calendars to check",
+          "notify_service": "Phone notification action"
+        }
+      },
+      "confirm": {
+        "title": "Confirm your entrances",
+        "description": "Matched home: {home}. Matched office: {office}. Check the map pins; a postcode may identify an area rather than the right entrance.",
+        "data": {
+          "home_location": "Confirm home entrance",
+          "office_location": "Confirm office entrance"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Update routing credentials",
+        "data": {
+          "tomtom_key": "TomTom API key"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to contact the provider. Check the key, network and product access.",
+      "invalid_auth": "Provider credentials were rejected.",
+      "invalid_input": "Check the selected entities, times and route settings.",
+      "address_not_found": "No usable address match. Try a full postcode or street address."
+    },
+    "abort": {
+      "already_configured": "Already configured for this person.",
+      "reauth_successful": "Credentials updated."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Configure Journey Ready",
+        "menu_options": {
+          "general": "Times and preferences",
+          "sources": "Provider credentials and request budgets",
+          "add_site": "Add or replace a Park & Ride site",
+          "remove_site": "Remove a Park & Ride site",
+          "stations": "Train stations and timetable",
+          "fuel_weather": "Fuel, tickets and weather",
+          "alexa": "Alexa announcements and questions",
+          "destination": "Confirm an appointment destination",
+          "remove_destination": "Remove a confirmed destination",
+          "connections": "Calendars, phone and locations"
+        }
+      },
+      "general": {
+        "title": "Times and preferences",
+        "data": {
+          "arrival_time": "Arrive at work by",
+          "work_end": "Work ends at",
+          "morning_time": "Morning summary time",
+          "evening_time": "Evening car question time",
+          "office_match": "Office event text to match",
+          "exclude_keywords": "Excluded event titles (comma separated)",
+          "safety_minutes": "Arrival safety margin (minutes)",
+          "parking_minutes": "Parking allowance (minutes)",
+          "boarding_minutes": "Train boarding allowance (minutes)",
+          "road_delay_minutes": "Road delay threshold (minutes)",
+          "change_minutes": "Earlier departure update threshold (minutes)",
+          "fallback_minutes": "Wait for phone answer before Alexa (minutes)",
+          "car_available": "Car is available",
+          "car_required_default": "Assume car is needed if unanswered",
+          "quiet_start": "Quiet start",
+          "quiet_end": "Quiet end",
+          "appointment_parking": "Appointment parking allowance (minutes)",
+          "appointment_walk": "Appointment final walk (minutes)"
+        }
+      },
+      "sources": {
+        "title": "Provider credentials and request budgets",
+        "data": {
+          "tomtom_key": "TomTom API key",
+          "rail_username": "National Rail JSON username",
+          "rail_password": "National Rail JSON password",
+          "transport_app_id": "TransportAPI app ID",
+          "transport_app_key": "TransportAPI app key",
+          "road_daily_budget": "Daily routing request budget",
+          "transport_daily_budget": "Daily transit request budget",
+          "fuel_client_id": "Fuel Finder client ID",
+          "fuel_client_secret": "Fuel Finder client secret",
+          "fuel_daily_budget": "Daily Fuel Finder request budget",
+          "fuel_auth_format": "Fuel Finder token request format"
+        },
+        "description": "Leave credentials blank to retain them. Verify each provider's allowance before increasing budgets."
+      },
+      "add_site": {
+        "title": "Add or replace a Park & Ride site",
+        "data": {
+          "name": "Name",
+          "site_location": "Park & Ride vehicle entrance",
+          "line": "Bus route number",
+          "stop_id": "Boarding stop ATCO code",
+          "departures": "Confirmed bus departure times (HH:MM, comma separated)",
+          "return_departures": "Confirmed return bus times for car collection (HH:MM, comma separated)",
+          "bus_minutes": "Timetable bus ride (minutes)",
+          "office_walk": "Walk from bus stop to office (minutes)",
+          "return_walk": "Walk to return bus (minutes)",
+          "last_return": "Last bus departing towards the site",
+          "closes": "Park & Ride gate closing time",
+          "days": "Timetable applies on",
+          "timetable_confirmed": "I checked the service timetable and its dates"
+        },
+        "description": "Use the operator's current timetable, including the last return bus and gate closure. Configured times are estimates, not confirmation of live delays."
+      },
+      "remove_site": {
+        "title": "Remove a Park & Ride site",
+        "data": {
+          "name": "Name"
+        }
+      },
+      "stations": {
+        "title": "Train stations and timetable",
+        "data": {
+          "rail_enabled": "Compare trains for work",
+          "origin_crs": "Origin station CRS code",
+          "destination_crs": "Destination station CRS code",
+          "origin_station": "Origin station entrance",
+          "destination_station": "Destination station entrance",
+          "rail_timetable_confirmed": "I checked the direct train timetable",
+          "rail_departures": "Confirmed train times (HH:MM, comma separated)",
+          "rail_minutes": "Direct train duration (minutes)",
+          "rail_last_return": "Last return train departure",
+          "max_station_walk": "Maximum walk to station (minutes)"
+        },
+        "description": "Direct trains only. Optional confirmed timetable times allow provisional plans outside the live-board horizon."
+      },
+      "fuel_weather": {
+        "title": "Fuel, tickets and weather",
+        "data": {
+          "mpg": "Fuel economy (miles per gallon)",
+          "gallon": "Gallon definition",
+          "diesel_price": "Manual diesel price (GBP/litre, 0 means unknown)",
+          "fuel_sensor": "Optional local diesel price sensor",
+          "park_ride_fare": "Park & Ride return fare (GBP)",
+          "park_ride_pass": "Park & Ride ticket already paid",
+          "rail_fare": "Train return fare (GBP, 0 means unknown)",
+          "rail_pass": "Train ticket already paid",
+          "rain_probability": "Rain probability threshold (%)",
+          "rain_fraction": "Wet hours needed to prefer car (%)",
+          "rain_coverage": "Forecast coverage required (%)",
+          "fuel_enabled": "Enable Fuel Finder local diesel lookup",
+          "fuel_radius_km": "Local forecourt radius (km)",
+          "fuel_station_id": "Preferred forecourt node ID (optional)",
+          "fuel_price_unit": "Fuel Finder price unit (auto follows documented mixed units)"
+        },
+        "description": "Fuel Finder needs your own credentials and a successful live schema check. With no preferred forecourt, use the median standard diesel price locally. A fresh sensor or manual price remains the fallback. Ticket prices are configured values."
+      },
+      "alexa": {
+        "title": "Alexa announcements and questions",
+        "data": {
+          "alexa_enabled": "Enable home-only Alexa",
+          "alexa_notify": "Alexa Speak or Announce notify entity",
+          "alexa_speaker": "Alexa Media Player speaker for questions",
+          "alexa_question_script": "Installed Alexa Actions question script",
+          "alexa_response_user": "Trusted Alexa Actions backend Home Assistant user ID (optional)"
+        },
+        "description": "Install and test the upstream Alexa Actions skill and question script first. Voice answers require an explicitly trusted authenticated backend user ID. Alexa does not identify individual speakers. Leave that ID blank to require phone answers."
+      },
+      "destination": {
+        "title": "Confirm an appointment destination",
+        "data": {
+          "calendar_location": "Exact calendar location text",
+          "location": "Confirm destination entrance"
+        }
+      },
+      "remove_destination": {
+        "title": "Remove a confirmed destination",
+        "data": {
+          "calendar_location": "Exact calendar location text"
+        }
+      },
+      "connections": {
+        "title": "Calendars, phone and locations",
+        "data": {
+          "person": "Person",
+          "notify_service": "Phone notification action",
+          "phone_device": "Companion phone device",
+          "calendars": "Calendars to check",
+          "home_location": "Confirm home entrance",
+          "office_location": "Confirm office entrance",
+          "location_max_age": "Maximum location age (minutes)",
+          "location_max_accuracy": "Maximum GPS uncertainty (metres)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to contact the provider. Check the key, network and product access.",
+      "invalid_auth": "Provider credentials were rejected.",
+      "invalid_input": "Check the selected entities, times and route settings.",
+      "address_not_found": "No usable address match. Try a full postcode or street address."
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "domain": "journey_ready",
+  "name": "Journey Ready",
+  "codeowners": [
+    "@aidanbha79"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "calendar",
+    "person"
+  ],
+  "documentation": "https://github.com/aidanbha79/ha-journey-ready",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/aidanbha79/ha-journey-ready/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}
